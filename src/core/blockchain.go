@@ -239,7 +239,7 @@ func (bc *Blockchain) NewContractCallTransaction(from, contractAddress, function
 	}
 
 	// Buat payload JSON
-	argSlice := strings.Split(args, ",")
+	argSlice := strings.Split(args, "|")
 	payloadData := ContractCallPayload{
 		ContractAddress: contractAddress,
 		FunctionName:    function,
