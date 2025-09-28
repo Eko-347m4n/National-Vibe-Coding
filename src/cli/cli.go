@@ -35,6 +35,7 @@ func (cli *CLI) printUsage() {
 	fmt.Println("  createtask -from FROM -contract ADDR -model NAME -min P - Buat tugas Federated Learning")
 	fmt.Println("  jointask -from FROM -contract ADDR -taskid ID -stake STAKE [-participant ADDR] - Bergabung dengan tugas FL")
 	fmt.Println("  submithash -from FROM -contract ADDR -taskid ID -hash HASH [-participant ADDR] - Kirim hash model FL")
+	fmt.Println("  registernode -from FROM -contract ADDR - Mendaftarkan alamat sebagai node inference")
 	fmt.Println("  startnode -miner ADDRESS      - Mulai node")
 }
 
@@ -112,6 +113,13 @@ func (cli *CLI) getJob(contract, jobID string) {
 		log.Panic("Tidak ada wallet yang ditemukan untuk melakukan panggilan getjob.")
 	}
 	cli.callContract(addresses[0], contract, "get_job", jobID)
+}
+
+func (cli *CLI) registerNode(from, contractAddress string) {
+    // Argumen untuk fungsi register(node_address)
+    // Alamat yang mendaftar adalah alamat yang membayar fee
+    args := from
+    cli.callContract(from, contractAddress, "register", args)
 }
 
 func (cli *CLI) publishModel(from, contractAddress, modelName, filePath string) {
@@ -277,6 +285,7 @@ func (cli *CLI) Run() {
 	createTaskCmd := flag.NewFlagSet("createtask", flag.ExitOnError)
 	joinTaskCmd := flag.NewFlagSet("jointask", flag.ExitOnError)
 	submitHashCmd := flag.NewFlagSet("submithash", flag.ExitOnError)
+	registerNodeCmd := flag.NewFlagSet("registernode", flag.ExitOnError)
 	startNodeCmd := flag.NewFlagSet("startnode", flag.ExitOnError)
 	sendInferenceCmd := flag.NewFlagSet("sendinference", flag.ExitOnError)
 
@@ -325,6 +334,8 @@ func (cli *CLI) Run() {
 	submitHashTaskID := submitHashCmd.String("taskid", "", "ID Tugas FL")
 	submitHashHash := submitHashCmd.String("hash", "", "Hash dari model yang diperbarui")
 	submitHashParticipant := submitHashCmd.String("participant", "", "(Opsional) Alamat peserta jika berbeda dari pengirim")
+	registerNodeFrom := registerNodeCmd.String("from", "", "Alamat yang mendaftar sebagai node")
+    registerNodeContract := registerNodeCmd.String("contract", "", "Alamat kontrak oracle registry")
 	startNodeMiner := startNodeCmd.String("miner", "", "Aktifkan penambangan dan kirim hadiah ke alamat ini")
 
 	switch os.Args[1] {
@@ -410,6 +421,11 @@ func (cli *CLI) Run() {
 		}
 	case "submithash":
 		err := submitHashCmd.Parse(os.Args[2:])
+		if err != nil {
+			log.Panic(err)
+		}
+	case "registernode":
+		err := registerNodeCmd.Parse(os.Args[2:])
 		if err != nil {
 			log.Panic(err)
 		}
@@ -555,6 +571,14 @@ func (cli *CLI) Run() {
 		}
 		cli.submitHash(*submitHashFrom, *submitHashContract, *submitHashTaskID, *submitHashHash, *submitHashParticipant)
 	}
+
+	if registerNodeCmd.Parsed() {
+        if *registerNodeFrom == "" || *registerNodeContract == "" {
+            registerNodeCmd.Usage()
+            os.Exit(1)
+        }
+        cli.registerNode(*registerNodeFrom, *registerNodeContract)
+    }
 
 	if startNodeCmd.Parsed() {
 		nodeID := os.Getenv("NODE_ID")
