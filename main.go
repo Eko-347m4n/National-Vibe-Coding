@@ -1,8 +1,11 @@
 package main
 
-import "fmt"
+import (
+	"swatantra-node/src/cli"
+)
 
 func main() {
-	fmt.Println("Memulai Swatantra Node...")
-	// TODO: Inisialisasi blockchain, wallet, dan jalankan server P2P
+	// Serahkan eksekusi ke handler CLI
+	cli := cli.CLI{}
+	cli.Run()
 }

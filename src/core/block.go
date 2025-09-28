@@ -1,6 +1,9 @@
 package core
 
 import (
+	"bytes"
+	"encoding/gob"
+	"log"
 	"time"
 )
 
@@ -9,12 +12,12 @@ import (
 
 // Block merepresentasikan satu unit dalam blockchain
 type Block struct {
-	Timestamp     int64         // Waktu pembuatan blok
-	PrevBlockHash []byte        // Hash dari blok sebelumnya
-	Hash          []byte        // Hash dari blok saat ini (dihitung dari header)
-	Transactions  []*Transaction // Daftar transaksi dalam blok
-	Nonce         int           // Angka yang digunakan dalam proses mining (Proof-of-Work)
-	Height        int           // Ketinggian blok dalam chain
+	Timestamp     int64
+	PrevBlockHash []byte
+	Hash          []byte
+	Transactions  []*Transaction
+	Nonce         int
+	Height        int
 }
 
 // NewBlock membuat dan mengembalikan block baru.
@@ -25,11 +28,38 @@ func NewBlock(transactions []*Transaction, prevBlockHash []byte, height int) *Bl
 		Transactions:  transactions,
 		Height:        height,
 	}
-	// TODO: Implementasikan proses Proof-of-Work untuk mendapatkan Hash dan Nonce
-	// pow := NewProofOfWork(block)
-	// nonce, hash := pow.Run()
-	// block.Hash = hash[:]
-	// block.Nonce = nonce
+
+	pow := NewProofOfWork(block)
+	nonce, hash := pow.Run()
+
+	block.Hash = hash
+	block.Nonce = nonce
 
 	return block
+}
+
+// Serialize mengubah Block menjadi slice of bytes
+func (b *Block) Serialize() []byte {
+	var result bytes.Buffer
+	encoder := gob.NewEncoder(&result)
+
+	err := encoder.Encode(b)
+	if err != nil {
+		log.Panic(err)
+	}
+
+	return result.Bytes()
+}
+
+// DeserializeBlock mengubah slice of bytes kembali menjadi Block
+func DeserializeBlock(d []byte) *Block {
+	var block Block
+	decoder := gob.NewDecoder(bytes.NewReader(d))
+
+	err := decoder.Decode(&block)
+	if err != nil {
+		log.Panic(err)
+	}
+
+	return &block
 }
