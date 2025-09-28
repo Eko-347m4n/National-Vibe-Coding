@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"swatantra-node/src/core"
+	"swatantra-node/src/p2p"
 	"swatantra-node/src/wallet"
 )
 
@@ -22,6 +23,8 @@ func (cli *CLI) printUsage() {
 	fmt.Println("  listaddresses               - Tampilkan semua alamat wallet")
 	fmt.Println("  reindexutxo                 - Bangun ulang UTXO set")
 	fmt.Println("  printchain                  - Cetak semua blok di blockchain")
+	fmt.Println("  send -from FROM -to TO -amount AMOUNT - Kirim sejumlah koin dari satu alamat ke alamat lain")
+	fmt.Println("  startnode -miner ADDRESS      - Mulai node dengan ID yang diatur dari variabel lingkungan NODE_ID dan mulai menambang")
 }
 
 func (cli *CLI) validateArgs() {
@@ -51,6 +54,19 @@ func (cli *CLI) getBalance(address string) {
 	}
 
 	fmt.Printf("Saldo '%s': %d\n", address, balance)
+}
+
+func (cli *CLI) send(from, to string, amount int) {
+	bc := core.NewBlockchain()
+	UTXOSet := core.UTXOSet{bc}
+	defer bc.Database().Close()
+
+	tx, err := bc.NewUTXOTransaction(from, to, amount, &UTXOSet)
+	if err != nil {
+		log.Panic(err)
+	}
+	bc.AddBlock([]*core.Transaction{tx})
+	fmt.Println("Transaksi berhasil!")
 }
 
 func (cli *CLI) reindexUTXO() {
@@ -102,6 +118,18 @@ func (cli *CLI) printChain() {
 	}
 }
 
+func (cli *CLI) startNode(nodeID, minerAddress string) {
+	fmt.Printf("Starting node %s\n", nodeID)
+	if len(minerAddress) > 0 {
+		if wallet.ValidateAddress(minerAddress) {
+			fmt.Println("Mining is on. Address to receive rewards: ", minerAddress)
+		} else {
+			log.Panic("Wrong miner address!")
+		}
+	}
+	p2p.StartServer(nodeID, minerAddress)
+}
+
 // Run memulai pemrosesan perintah CLI
 func (cli *CLI) Run() {
 	cli.validateArgs()
@@ -112,9 +140,15 @@ func (cli *CLI) Run() {
 	listAddressesCmd := flag.NewFlagSet("listaddresses", flag.ExitOnError)
 	reindexUTXOCmd := flag.NewFlagSet("reindexutxo", flag.ExitOnError)
 	printChainCmd := flag.NewFlagSet("printchain", flag.ExitOnError)
+	sendCmd := flag.NewFlagSet("send", flag.ExitOnError)
+	startNodeCmd := flag.NewFlagSet("startnode", flag.ExitOnError)
 
 	createBlockchainAddress := createBlockchainCmd.String("address", "", "Alamat yang menerima hadiah genesis")
 	getBalanceAddress := getBalanceCmd.String("address", "", "Alamat wallet")
+	sendFrom := sendCmd.String("from", "", "Alamat pengirim")
+	sendTo := sendCmd.String("to", "", "Alamat penerima")
+	sendAmount := sendCmd.Int("amount", 0, "Jumlah yang dikirim")
+	startNodeMiner := startNodeCmd.String("miner", "", "Aktifkan penambangan dan kirim hadiah ke alamat ini")
 
 	switch os.Args[1] {
 	case "createblockchain":
@@ -144,6 +178,16 @@ func (cli *CLI) Run() {
 		}
 	case "printchain":
 		err := printChainCmd.Parse(os.Args[2:])
+		if err != nil {
+			log.Panic(err)
+		}
+	case "send":
+		err := sendCmd.Parse(os.Args[2:])
+		if err != nil {
+			log.Panic(err)
+		}
+	case "startnode":
+		err := startNodeCmd.Parse(os.Args[2:])
 		if err != nil {
 			log.Panic(err)
 		}
@@ -182,5 +226,22 @@ func (cli *CLI) Run() {
 
 	if printChainCmd.Parsed() {
 		cli.printChain()
+	}
+
+	if sendCmd.Parsed() {
+		if *sendFrom == "" || *sendTo == "" || *sendAmount <= 0 {
+			sendCmd.Usage()
+			os.Exit(1)
+		}
+		cli.send(*sendFrom, *sendTo, *sendAmount)
+	}
+
+	if startNodeCmd.Parsed() {
+		nodeID := os.Getenv("NODE_ID")
+		if nodeID == "" {
+			startNodeCmd.Usage()
+			os.Exit(1)
+		}
+		cli.startNode(nodeID, *startNodeMiner)
 	}
 }

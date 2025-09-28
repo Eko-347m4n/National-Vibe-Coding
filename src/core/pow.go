@@ -8,11 +8,15 @@ import (
 	"swatantra-node/src/utils"
 )
 
-// TargetBits menentukan tingkat kesulitan. Angka yang lebih kecil berarti lebih sulit.
-// Ini akan digantikan oleh algoritma kesulitan dinamis (EMA) nanti.
-const TargetBits = 16
-
 // ProofOfWork merepresentasikan proses pembuktian kerja
+
+// EMA (Exponential Moving Average) Difficulty Adjustment constants
+const (
+	TargetBlockTime          = 15 // Detik
+	DifficultyAdjustmentWindow = 10 // Jumlah blok untuk EMA
+	InitialTargetBits        = 20 // Tingkat kesulitan awal (lebih mudah)
+)
+
 type ProofOfWork struct {
 	block  *Block
 	target *big.Int
@@ -20,11 +24,8 @@ type ProofOfWork struct {
 
 // NewProofOfWork membuat instance PoW baru untuk sebuah blok
 func NewProofOfWork(b *Block) *ProofOfWork {
-	target := big.NewInt(1)
-	// Geser bit ke kiri untuk menentukan target.
-	// Lsh (Left Shift) sama dengan target * 2^(256 - TargetBits)
-	target.Lsh(target, uint(256-TargetBits))
-
+	target := new(big.Int)
+	target.SetBytes(b.Target)
 	pow := &ProofOfWork{b, target}
 	return pow
 }
@@ -34,9 +35,9 @@ func (pow *ProofOfWork) prepareData(nonce int) []byte {
 	data := bytes.Join(
 		[][]byte{
 			pow.block.PrevBlockHash,
-			// TODO: Hash transaksi juga harus dimasukkan di sini
+			pow.block.HashTransactions(), // Menggunakan hash transaksi
 			utils.IntToHex(pow.block.Timestamp),
-			utils.IntToHex(int64(TargetBits)),
+			pow.block.Target, // Memasukkan target kesulitan saat ini
 			utils.IntToHex(int64(nonce)),
 		},
 		[]byte{},

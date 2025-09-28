@@ -5,34 +5,41 @@ import (
 	"encoding/gob"
 	"log"
 	"time"
-)
 
-// block.go akan berisi definisi struktur Block dan logika terkait.
-// Seperti header, transaksi, dan metode untuk validasi.
+	"swatantra-node/src/crypto"
+)
 
 // Block merepresentasikan satu unit dalam blockchain
 type Block struct {
 	Timestamp     int64
+	Transactions  []*Transaction
 	PrevBlockHash []byte
 	Hash          []byte
-	Transactions  []*Transaction
 	Nonce         int
 	Height        int
+	Target        []byte // Target kesulitan untuk blok ini
 }
 
-// NewBlock membuat dan mengembalikan block baru.
-func NewBlock(transactions []*Transaction, prevBlockHash []byte, height int) *Block {
-	block := &Block{
-		Timestamp:     time.Now().Unix(),
-		PrevBlockHash: prevBlockHash,
-		Transactions:  transactions,
-		Height:        height,
-	}
+// HashTransactions mengembalikan hash dari transaksi-transaksi di dalam blok
+func (b *Block) HashTransactions() []byte {
+	var transactions [][]byte
 
+	for _, tx := range b.Transactions {
+		transactions = append(transactions, tx.ID)
+	}
+	// Di masa depan, ini akan menjadi Merkle Tree
+	hash := crypto.Keccak256(bytes.Join(transactions, []byte{}))
+
+	return hash
+}
+
+// NewBlock membuat dan mengembalikan sebuah Block
+func NewBlock(transactions []*Transaction, prevBlockHash []byte, height int, target []byte) *Block {
+	block := &Block{time.Now().Unix(), transactions, prevBlockHash, []byte{}, 0, height, target}
 	pow := NewProofOfWork(block)
 	nonce, hash := pow.Run()
 
-	block.Hash = hash
+	block.Hash = hash[:];
 	block.Nonce = nonce
 
 	return block

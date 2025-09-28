@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math/big"
 	"os"
+	"time"
 
 	"github.com/dgraph-io/badger/v4"
 	"swatantra-node/src/wallet"
@@ -32,8 +34,6 @@ func (bc *Blockchain) Iterator() *BlockchainIterator {
 	return &BlockchainIterator{bc.tip, bc.db}
 }
 
-// NewBlockchain membuat atau membuka blockchain yang ada
-
 // CreateBlockchain membuat blockchain baru dengan blok genesis
 func CreateBlockchain(address string) *Blockchain {
 	if DbExists() {
@@ -51,7 +51,12 @@ func CreateBlockchain(address string) *Blockchain {
 	err = db.Update(func(txn *badger.Txn) error {
 		pubKeyHash := wallet.DecodeAddress(address)
 		cbtx := NewCoinbaseTX(pubKeyHash, "")
-		genesis := NewBlock([]*Transaction{cbtx}, []byte{}, 0)
+
+		// Buat target kesulitan awal untuk genesis block
+		target := big.NewInt(1)
+		target.Lsh(target, uint(256-InitialTargetBits))
+
+		genesis := NewBlock([]*Transaction{cbtx}, []byte{}, 0, target.Bytes())
 
 		fmt.Println("Blok Genesis dibuat")
 		err = txn.Set(genesis.Hash, genesis.Serialize())
@@ -114,8 +119,6 @@ func DbExists() bool {
 	return true
 }
 
-// AddBlock menyimpan blok baru ke dalam blockchain
-
 // FindUTXO menemukan semua output transaksi yang belum dibelanjakan
 func (bc *Blockchain) FindUTXO() map[string]TXOutputs {
 	UTXO := make(map[string]TXOutputs)
@@ -142,7 +145,7 @@ func (bc *Blockchain) FindUTXO() map[string]TXOutputs {
 				UTXO[txID] = outs
 			}
 
-			if tx.IsCoinbase() == false {
+			if !tx.IsCoinbase() {
 				for _, in := range tx.Inputs {
 					inTxID := hex.EncodeToString(in.TxID)
 					spentTXOs[inTxID] = append(spentTXOs[inTxID], in.OutIndex)
@@ -239,15 +242,16 @@ func (bc *Blockchain) SignTransaction(tx *Transaction, privKey ed25519.PrivateKe
 }
 
 func (bc *Blockchain) AddBlock(transactions []*Transaction) {
-	var newBlock *Block
+	var lastHash []byte
+	var lastHeight int
+	var parentBlock *Block
 
-	err := bc.db.Update(func(txn *badger.Txn) error {
+	err := bc.db.View(func(txn *badger.Txn) error {
 		// Ambil hash dari blok terakhir
 		item, err := txn.Get([]byte("lh"))
 		if err != nil {
 			return err
 		}
-		var lastHash []byte
 		err = item.Value(func(val []byte) error {
 			lastHash = val
 			return nil
@@ -256,26 +260,31 @@ func (bc *Blockchain) AddBlock(transactions []*Transaction) {
 			return err
 		}
 
-		// Ambil blok terakhir itu sendiri untuk mendapatkan tingginya
+		// Ambil blok terakhir itu sendiri
 		item, err = txn.Get(lastHash)
 		if err != nil {
 			return err
 		}
-		var lastHeight int
 		err = item.Value(func(val []byte) error {
-			lastBlock := DeserializeBlock(val)
-			lastHeight = lastBlock.Height
+			parentBlock = DeserializeBlock(val)
+			lastHeight = parentBlock.Height
 			return nil
 		})
-		if err != nil {
-			return err
-		}
+		return err
+	})
+	if err != nil {
+		log.Panic(err)
+	}
 
-		// Buat blok baru dengan tinggi yang benar
-		newBlock = NewBlock(transactions, lastHash, lastHeight+1)
+	// Hitung target kesulitan baru menggunakan EMA
+	newTarget := calculateNewTarget(parentBlock)
 
-		// Simpan blok baru ke DB
-		err = txn.Set(newBlock.Hash, newBlock.Serialize())
+	// Buat blok baru
+	newBlock := NewBlock(transactions, lastHash, lastHeight+1, newTarget.Bytes())
+
+	// Simpan blok baru ke DB
+	err = bc.db.Update(func(txn *badger.Txn) error {
+		err := txn.Set(newBlock.Hash, newBlock.Serialize())
 		if err != nil {
 			return err
 		}
@@ -293,6 +302,39 @@ func (bc *Blockchain) AddBlock(transactions []*Transaction) {
 	// Perbarui UTXO set
 	UTXOSet := UTXOSet{bc}
 	UTXOSet.Update(newBlock)
+}
+
+// calculateNewTarget menghitung target kesulitan berikutnya berdasarkan blok sebelumnya
+func calculateNewTarget(parentBlock *Block) *big.Int {
+	parentTarget := new(big.Int).SetBytes(parentBlock.Target)
+
+	// Waktu pembuatan blok aktual
+	actualBlockTime := time.Now().Unix() - parentBlock.Timestamp
+	// Batasi agar tidak terlalu cepat atau lambat untuk mencegah fluktuasi ekstrem
+	if actualBlockTime < TargetBlockTime/4 {
+		actualBlockTime = TargetBlockTime / 4
+	}
+	if actualBlockTime > TargetBlockTime*4 {
+		actualBlockTime = TargetBlockTime * 4
+	}
+
+	// Rumus EMA sederhana untuk menyesuaikan target:
+	// newTarget = ( (N-1)*parentTarget + parentTarget * actual_time / target_time ) / N
+	window := big.NewInt(DifficultyAdjustmentWindow)
+	targetTime := big.NewInt(TargetBlockTime)
+
+	// Term 1: (N-1) * parentTarget
+	term1 := new(big.Int).Mul(parentTarget, new(big.Int).Sub(window, big.NewInt(1)))
+
+	// Term 2: parentTarget * actual_time / target_time
+	term2_num := new(big.Int).Mul(parentTarget, big.NewInt(actualBlockTime))
+	term2 := new(big.Int).Div(term2_num, targetTime)
+
+	// (Term 1 + Term 2) / N
+	newTargetNum := new(big.Int).Add(term1, term2)
+	newTarget := new(big.Int).Div(newTargetNum, window)
+
+	return newTarget
 }
 
 // --- BlockchainIterator ---
