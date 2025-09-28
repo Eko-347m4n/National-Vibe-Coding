@@ -17,6 +17,8 @@ const (
 	TxNormal           TransactionType = iota // Transaksi transfer UTXO biasa
 	TxContractCreation                        // Transaksi untuk membuat kontrak baru
 	TxContractCall                            // Transaksi untuk memanggil fungsi di kontrak
+	TxStake                                   // Transaksi untuk staking (burn)
+	TxInferenceRequest                        // Transaksi untuk membuat permintaan inferensi (burn reward)
 )
 
 // Transaction merepresentasikan sebuah transaksi

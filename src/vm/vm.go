@@ -1,7 +1,9 @@
 package vm
 
 import (
+	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/yuin/gopher-lua"
 )
@@ -15,12 +17,13 @@ type VM struct {
 }
 
 // NewVM membuat instance VM baru
-func NewVM() *VM {
+func NewVM(gasLimit uint64) *VM {
 	L := lua.NewState()
 
 	vm := &VM{
-		L:     L,
-		State: make(map[string]string),
+		L:        L,
+		GasLimit: gasLimit,
+		State:    make(map[string]string),
 	}
 
 	// Daftarkan fungsi Go yang bisa dipanggil dari Lua (host functions)
@@ -46,10 +49,23 @@ func (vm *VM) registerHostFunctions() {
 
 // Execute menjalankan kode smart contract
 func (vm *VM) Execute(contractCode string) error {
-	// Di masa depan, kita akan menambahkan gas limit di sini
-	// vm.L.SetMx(int(vm.GasLimit))
+	if vm.GasLimit > 0 {
+		vm.L.SetMx(int(vm.GasLimit)) // SetMx menggunakan int, perlu konversi
+	}
 
-	return vm.L.DoString(contractCode)
+	err := vm.L.DoString(contractCode)
+	if err != nil {
+		// Periksa apakah error disebabkan oleh kehabisan gas (stack overflow)
+		if strings.Contains(err.Error(), "stack overflow") {
+			return errors.New("eksekusi melebihi gas limit")
+		}
+		return err
+	}
+
+	// Di masa depan, kita bisa menghitung gas yang digunakan secara lebih akurat
+	// vm.GasUsed = uint64(vm.L.GetMx())
+
+	return nil
 }
 
 // --- Host Functions ---

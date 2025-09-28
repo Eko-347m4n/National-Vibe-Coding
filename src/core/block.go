@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/gob"
 	"log"
-	"time"
 
 	"swatantra-node/src/crypto"
 )
@@ -34,8 +33,8 @@ func (b *Block) HashTransactions() []byte {
 }
 
 // NewBlock membuat dan mengembalikan sebuah Block
-func NewBlock(transactions []*Transaction, prevBlockHash []byte, height int, target []byte) *Block {
-	block := &Block{time.Now().Unix(), transactions, prevBlockHash, []byte{}, 0, height, target}
+func NewBlock(transactions []*Transaction, prevBlockHash []byte, height int, target []byte, timestamp int64) *Block {
+	block := &Block{timestamp, transactions, prevBlockHash, []byte{}, 0, height, target}
 	pow := NewProofOfWork(block)
 	nonce, hash := pow.Run()
 

@@ -1,32 +1,39 @@
 -- oracle_registry.lua
--- Smart contract untuk mengelola pendaftaran node inference.
+-- Smart contract untuk mengelola pendaftaran node inference melalui staking.
 
--- Inisialisasi state saat kontrak pertama kali di-deploy
 function init()
     log("Kontrak Oracle Registry diinisialisasi.")
     set_value("node_count", "0")
 end
 
--- Daftarkan node baru
--- @param node_address Alamat dari node yang ingin mendaftar
-function register(node_address)
-    if node_address == nil or node_address == "" then
-        log("Error: Alamat node tidak boleh kosong.")
-        return
+-- Fungsi ini dipanggil oleh sistem blockchain saat transaksi stake terdeteksi
+-- @param node_address Alamat node yang melakukan stake
+-- @param amount Jumlah yang di-stake
+function register_stake(node_address, amount)
+    log("Mencatat stake untuk node: " .. node_address .. " sejumlah: " .. amount)
+
+    local stake_key = "stake:" .. node_address
+    local current_stake = tonumber(get_value(stake_key) or "0")
+    local new_stake = current_stake + tonumber(amount)
+
+    -- Jika ini adalah pendaftaran pertama, tambah jumlah node
+    if current_stake == 0 and new_stake > 0 then
+        local count = tonumber(get_value("node_count") or "0") + 1
+        set_value("node_count", tostring(count))
+        set_value("node_" .. count, node_address)
     end
 
-    log("Mendaftarkan node baru: " .. node_address)
+    -- Perbarui jumlah stake
+    set_value(stake_key, tostring(new_stake))
+    log("Stake untuk " .. node_address .. " berhasil diperbarui menjadi: " .. new_stake)
+end
 
-    local count_str = get_value("node_count")
-    local count = tonumber(count_str)
-    local new_count = count + 1
-
-    -- Simpan alamat node dengan key berindeks
-    set_value("node_" .. tostring(new_count), node_address)
-    -- Perbarui jumlah node
-    set_value("node_count", tostring(new_count))
-
-    log("Pendaftaran berhasil. Total node sekarang: " .. tostring(new_count))
+-- Ambil jumlah stake dari sebuah node
+-- @param node_address Alamat node
+-- @return Jumlah stake sebagai string
+function get_stake(node_address)
+    local stake_key = "stake:" .. node_address
+    return get_value(stake_key) or "0"
 end
 
 -- Ambil daftar semua node yang terdaftar
@@ -49,6 +56,5 @@ function get_nodes()
         table.insert(nodes, node_addr)
     end
 
-    -- Gabungkan alamat menjadi satu string
     return table.concat(nodes, ",")
 end

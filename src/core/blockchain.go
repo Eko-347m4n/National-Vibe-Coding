@@ -1,5 +1,3 @@
-
-
 package core
 
 import (
@@ -21,6 +19,9 @@ import (
 	"swatantra-node/src/vm"
 	"swatantra-node/src/wallet"
 )
+
+// Alamat kontrak oracle registry yang di-hardcode
+const OracleRegistryAddress = "0000000000000000000000000000000000000000000000000000000000000001"
 
 // ContractCallPayload adalah struktur data untuk payload pemanggilan fungsi kontrak
 type ContractCallPayload struct {
@@ -61,31 +62,33 @@ func CreateBlockchain(address string) *Blockchain {
 		log.Panic(err)
 	}
 
-	bc := &Blockchain{nil, db} // Inisialisasi bc di sini
+	bc := &Blockchain{nil, db}
 
 	err = db.Update(func(txn *badger.Txn) error {
+		// 1. Buat blok genesis
 		pubKeyHash := wallet.DecodeAddress(address)
 		cbtx := NewCoinbaseTX(pubKeyHash, "")
-
-		// Buat target kesulitan awal untuk genesis block
 		target := big.NewInt(1)
 		target.Lsh(target, uint(256-InitialTargetBits))
-
-		genesis := NewBlock([]*Transaction{cbtx}, []byte{}, 0, target.Bytes())
-
+		genesis := NewBlock([]*Transaction{cbtx}, []byte{}, 0, target.Bytes(), time.Now().Unix())
 		fmt.Println("Blok Genesis dibuat")
-		err = txn.Set(genesis.Hash, genesis.Serialize())
-		if err != nil {
-			log.Panic(err)
+		if err := txn.Set(genesis.Hash, genesis.Serialize()); err != nil {
+			return err
 		}
-		err = txn.Set([]byte("lh"), genesis.Hash)
-		if err != nil {
-			log.Panic(err)
+		if err := txn.Set([]byte("lh"), genesis.Hash); err != nil {
+			return err
 		}
-		bc.tip = genesis.Hash // Atur tip di sini
+		bc.tip = genesis.Hash
 
-		// Proses state awal genesis (jika ada kontrak di genesis)
-		bc.ProcessTransactions(genesis.Transactions, txn)
+		// 2. Terbitkan kontrak oracle_registry secara otomatis
+		fmt.Println("Menerbitkan kontrak Oracle Registry...")
+		oracleCode, err := os.ReadFile("oracle_registry.lua")
+		if err != nil {
+			return fmt.Errorf("gagal membaca oracle_registry.lua: %w", err)
+		}
+		oracleTxID, _ := hex.DecodeString(OracleRegistryAddress)
+		oracleTx := Transaction{ID: oracleTxID, Type: TxContractCreation, Payload: oracleCode}
+		bc.ProcessTransactions([]*Transaction{&oracleTx}, txn)
 
 		return nil
 	})
@@ -201,6 +204,114 @@ func (bc *Blockchain) FindTransaction(ID []byte) (Transaction, error) {
 
 	return Transaction{}, errors.New("Transaction is not found")
 }
+
+// InferenceRequestPayload adalah struktur data untuk payload permintaan inferensi
+type InferenceRequestPayload struct {
+	ModelName string `json:"model_name"`
+	InputData string `json:"input_data"`
+	Reward    int    `json:"reward"`
+}
+
+// NewInferenceRequestTransaction membuat transaksi untuk permintaan inferensi
+func (bc *Blockchain) NewInferenceRequestTransaction(from, modelName, inputData string, reward int, UTXOSet *UTXOSet) (*Transaction, error) {
+	wallets, err := wallet.NewWallets()
+	if err != nil {
+		return nil, err
+	}
+	w := wallets.GetWallet(from)
+	if w.PublicKey == nil {
+		return nil, fmt.Errorf("Wallet untuk alamat %s tidak ditemukan", from)
+	}
+	pubKeyHash := wallet.HashPubKey(w.PublicKey)
+
+	acc, validOutputs := UTXOSet.FindSpendableOutputs(pubKeyHash, reward)
+	if acc < reward {
+		return nil, fmt.Errorf("Error: Saldo tidak cukup untuk hadiah. Dibutuhkan: %d, Tersedia: %d", reward, acc)
+	}
+
+	var inputs []TXInput
+	// Buat input
+	for txid, outs := range validOutputs {
+		txID, err := hex.DecodeString(txid)
+		if err != nil {
+			return nil, err
+		}
+		for _, out := range outs {
+			input := TXInput{txID, out, nil, w.PublicKey}
+			inputs = append(inputs, input)
+		}
+	}
+
+	// Buat output kembalian jika ada. Tidak ada output tujuan (ini adalah burn).
+	var outputs []TXOutput
+	if acc > reward {
+		outputs = append(outputs, TXOutput{acc - reward, pubKeyHash})
+	}
+
+	// Buat payload JSON
+	payloadData := InferenceRequestPayload{
+		ModelName: modelName,
+		InputData: inputData,
+		Reward:    reward,
+	}
+	payloadBytes, err := json.Marshal(payloadData)
+	if err != nil {
+		return nil, fmt.Errorf("gagal membuat payload permintaan inferensi: %w", err)
+	}
+
+	tx := Transaction{nil, inputs, outputs, TxInferenceRequest, payloadBytes}
+	tx.ID = tx.Hash()
+	bc.SignTransaction(&tx, w.PrivateKey)
+
+	return &tx, nil
+}
+
+// NewStakeTransaction membuat transaksi untuk staking (membakar koin)
+func (bc *Blockchain) NewStakeTransaction(from string, amount int, UTXOSet *UTXOSet) (*Transaction, error) {
+	wallets, err := wallet.NewWallets()
+	if err != nil {
+		return nil, err
+	}
+	w := wallets.GetWallet(from)
+	if w.PublicKey == nil {
+		return nil, fmt.Errorf("Wallet untuk alamat %s tidak ditemukan", from)
+	}
+	pubKeyHash := wallet.HashPubKey(w.PublicKey)
+
+	acc, validOutputs := UTXOSet.FindSpendableOutputs(pubKeyHash, amount)
+	if acc < amount {
+		return nil, fmt.Errorf("Error: Saldo tidak cukup untuk stake. Dibutuhkan: %d, Tersedia: %d", amount, acc)
+	}
+
+	var inputs []TXInput
+	// Buat input
+	for txid, outs := range validOutputs {
+		txID, err := hex.DecodeString(txid)
+		if err != nil {
+			return nil, err
+		}
+		for _, out := range outs {
+			input := TXInput{txID, out, nil, w.PublicKey}
+			inputs = append(inputs, input)
+		}
+	}
+
+	// Buat output kembalian jika ada. Tidak ada output tujuan (ini adalah burn).
+	var outputs []TXOutput
+	if acc > amount {
+		outputs = append(outputs, TXOutput{acc - amount, pubKeyHash})
+	}
+
+	// Payload berisi jumlah yang di-stake
+	payload := []byte(fmt.Sprintf("%d", amount))
+
+	tx := Transaction{nil, inputs, outputs, TxStake, payload}
+	tx.ID = tx.Hash()
+	bc.SignTransaction(&tx, w.PrivateKey)
+
+	return &tx, nil
+}
+
 
 // NewContractCallTransaction membuat transaksi untuk memanggil fungsi pada kontrak
 func (bc *Blockchain) NewContractCallTransaction(from, contractAddress, function, args string, UTXOSet *UTXOSet) (*Transaction, error) {
@@ -400,8 +511,16 @@ func (bc *Blockchain) AddBlock(transactions []*Transaction) {
 	// Hitung target kesulitan baru menggunakan EMA
 	newTarget := calculateNewTarget(parentBlock)
 
-	// Buat blok baru
-	newBlock := NewBlock(transactions, lastHash, lastHeight+1, newTarget.Bytes())
+	// Buat blok baru dengan timestamp saat ini
+	newTimestamp := time.Now().Unix()
+
+	// Validasi Timestamp
+	if newTimestamp <= parentBlock.Timestamp {
+		log.Panic("Error: Timestamp blok baru harus lebih besar dari timestamp blok sebelumnya.")
+	}
+	// Ini adalah validasi sederhana, idealnya node tidak akan membuat blok dengan timestamp masa depan
+
+	newBlock := NewBlock(transactions, lastHash, lastHeight+1, newTarget.Bytes(), newTimestamp)
 
 	// Simpan blok baru dan proses transaksi di dalam satu DB transaction
 	err = bc.db.Update(func(txn *badger.Txn) error {
@@ -449,9 +568,25 @@ func deserializeState(data []byte) (map[string]string, error) {
 func (bc *Blockchain) ProcessTransactions(txs []*Transaction, txn *badger.Txn) {
 	for _, tx := range txs {
 		switch tx.Type {
+		case TxStake:
+			fmt.Println("Mendeteksi transaksi stake...")
+			// Dapatkan alamat pengirim dari public key input pertama
+			wallets, _ := wallet.NewWallets()
+			stakerAddress := wallets.GetAddress(tx.Inputs[0].PubKey)
+			stakeAmount := string(tx.Payload)
+
+			// Panggil fungsi register_stake di kontrak oracle registry
+			payloadData := ContractCallPayload{
+				ContractAddress: OracleRegistryAddress,
+				FunctionName:    "register_stake",
+				Args:            []string{stakerAddress, stakeAmount},
+			}
+			bc.processContractCall(payloadData, txn)
+
 		case TxContractCreation:
 			fmt.Println("Mendeteksi transaksi pembuatan kontrak, mengeksekusi VM...")
-			vmInstance := vm.NewVM()
+			const creationGasLimit = 1000000 // Batas gas untuk pembuatan kontrak
+			vmInstance := vm.NewVM(creationGasLimit)
 			// Muat kode untuk mendefinisikan fungsi
 			err := vmInstance.Execute(string(tx.Payload))
 			if err != nil {
@@ -498,73 +633,90 @@ func (bc *Blockchain) ProcessTransactions(txs []*Transaction, txn *badger.Txn) {
 			fmt.Printf("State dan kode untuk kontrak baru %s berhasil disimpan.\n", contractAddress)
 
 		case TxContractCall:
-			fmt.Println("Mendeteksi transaksi pemanggilan kontrak, mengeksekusi VM...")
 			var payload ContractCallPayload
 			if err := json.Unmarshal(tx.Payload, &payload); err != nil {
 				log.Panicf("Gagal unmarshal payload: %v", err)
 			}
-
-			codeKey := []byte("contract_code:" + payload.ContractAddress)
-			stateKey := []byte("contract:" + payload.ContractAddress)
-
-			codeItem, err := txn.Get(codeKey)
-			if err != nil {
-				log.Panicf("Gagal mendapatkan kode kontrak %s: %v", payload.ContractAddress, err)
+			bc.processContractCall(payload, txn)
+		case TxInferenceRequest:
+			fmt.Println("Mendeteksi transaksi permintaan inferensi...")
+			// Logika untuk menangani permintaan inferensi akan ditambahkan di sini
+			// Misalnya, memvalidasi model, memilih oracle, dll.
+			var payload InferenceRequestPayload
+			if err := json.Unmarshal(tx.Payload, &payload); err != nil {
+				log.Printf("Gagal unmarshal payload permintaan inferensi: %v", err)
+				// Lanjutkan ke transaksi berikutnya jika payload tidak valid
+				continue
 			}
-			contractCode, _ := codeItem.ValueCopy(nil)
-
-			stateItem, err := txn.Get(stateKey)
-			if err != nil {
-				log.Panicf("Gagal mendapatkan state kontrak %s: %v", payload.ContractAddress, err)
-			}
-			serializedState, _ := stateItem.ValueCopy(nil)
-			currentState, err := deserializeState(serializedState)
-			if err != nil {
-				log.Panicf("Gagal deserialisasi state: %v", err)
-			}
-
-			vmInstance := vm.NewVM()
-			vmInstance.State = currentState
-			defer vmInstance.Close()
-
-			if err := vmInstance.Execute(string(contractCode)); err != nil {
-				log.Panicf("Gagal memuat kode kontrak ke VM: %v", err)
-			}
-
-			// Logika pemanggilan fungsi yang benar
-			fnToCall := vmInstance.L.GetGlobal(payload.FunctionName)
-			vmInstance.L.Push(fnToCall)
-
-			nArgs := 0
-			for _, arg := range payload.Args {
-				if arg != "" {
-					vmInstance.L.Push(lua.LString(arg))
-					nArgs++
-				}
-			}
-
-			if err := vmInstance.L.PCall(nArgs, 1, nil); err != nil {
-			    log.Panicf("Gagal memanggil fungsi '%s': %v", payload.FunctionName, err)
-			}
-
-			// Ambil nilai kembali (jika ada)
-			ret := vmInstance.L.Get(-1)
-			vmInstance.L.Pop(1)
-
-			// 4. Simpan state baru
-			newSerializedState, err := serializeState(vmInstance.State)
-			if err != nil {
-				log.Panicf("Gagal serialisasi state baru: %v", err)
-			}
-			if err := txn.Set(stateKey, newSerializedState); err != nil {
-				log.Panicf("Gagal menyimpan state baru: %v", err)
-			}
-
-			fmt.Printf("Fungsi '%s' pada kontrak %s berhasil dieksekusi.\n", payload.FunctionName, payload.ContractAddress)
-			if ret != lua.LNil {
-				fmt.Printf("Nilai kembali: %s\n", ret.String())
-			}
+			fmt.Printf("Permintaan inferensi diterima untuk model '%s' dengan hadiah %d\n", payload.ModelName, payload.Reward)
 		}
+	}
+}
+
+func (bc *Blockchain) processContractCall(payload ContractCallPayload, txn *badger.Txn) {
+	fmt.Println("Mengeksekusi pemanggilan kontrak...")
+
+	const callGasLimit = 500000 // Batas gas untuk pemanggilan fungsi
+
+	codeKey := []byte("contract_code:" + payload.ContractAddress)
+	stateKey := []byte("contract:" + payload.ContractAddress)
+
+	codeItem, err := txn.Get(codeKey)
+	if err != nil {
+		log.Panicf("Gagal mendapatkan kode kontrak %s: %v", payload.ContractAddress, err)
+	}
+	contractCode, _ := codeItem.ValueCopy(nil)
+
+	stateItem, err := txn.Get(stateKey)
+	if err != nil {
+		log.Panicf("Gagal mendapatkan state kontrak %s: %v", payload.ContractAddress, err)
+	}
+	serializedState, _ := stateItem.ValueCopy(nil)
+	currentState, err := deserializeState(serializedState)
+	if err != nil {
+		log.Panicf("Gagal deserialisasi state: %v", err)
+	}
+
+	vmInstance := vm.NewVM(callGasLimit)
+	vmInstance.State = currentState
+	defer vmInstance.Close()
+
+	if err := vmInstance.Execute(string(contractCode)); err != nil {
+		log.Panicf("Gagal memuat kode kontrak ke VM: %v", err)
+	}
+
+	// Logika pemanggilan fungsi yang benar
+	fnToCall := vmInstance.L.GetGlobal(payload.FunctionName)
+	vmInstance.L.Push(fnToCall)
+
+	nArgs := 0
+	for _, arg := range payload.Args {
+		if arg != "" {
+			vmInstance.L.Push(lua.LString(arg))
+			nArgs++
+		}
+	}
+
+	if err := vmInstance.L.PCall(nArgs, 1, nil); err != nil {
+		log.Panicf("Gagal memanggil fungsi '%s': %v", payload.FunctionName, err)
+	}
+
+	// Ambil nilai kembali (jika ada)
+	ret := vmInstance.L.Get(-1)
+	vmInstance.L.Pop(1)
+
+	// Simpan state baru
+	newSerializedState, err := serializeState(vmInstance.State)
+	if err != nil {
+		log.Panicf("Gagal serialisasi state baru: %v", err)
+	}
+	if err := txn.Set(stateKey, newSerializedState); err != nil {
+		log.Panicf("Gagal menyimpan state baru: %v", err)
+	}
+
+	fmt.Printf("Fungsi '%s' pada kontrak %s berhasil dieksekusi.\n", payload.FunctionName, payload.ContractAddress)
+	if ret != lua.LNil {
+		fmt.Printf("Nilai kembali: %s\n", ret.String())
 	}
 }
 

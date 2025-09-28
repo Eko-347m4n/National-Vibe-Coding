@@ -47,7 +47,17 @@ func (ws *Wallets) GetAddresses() []string {
 
 // GetWallet mengembalikan sebuah Wallet berdasarkan alamat
 func (ws Wallets) GetWallet(address string) Wallet {
-	return *ws.Wallets[address]
+	wallet := ws.Wallets[address]
+	if wallet == nil {
+		return Wallet{} // Kembalikan wallet kosong jika tidak ditemukan
+	}
+	return *wallet
+}
+
+// GetAddress mengembalikan alamat untuk sebuah public key
+func (ws Wallets) GetAddress(pubKey []byte) string {
+	w := Wallet{PublicKey: pubKey}
+	return string(w.Address())
 }
 
 // LoadFromFile memuat wallets dari file

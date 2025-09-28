@@ -24,12 +24,17 @@ func (cli *CLI) printUsage() {
 	fmt.Println("  listaddresses               - Tampilkan semua alamat wallet")
 	fmt.Println("  printchain                  - Cetak semua blok di blockchain")
 	fmt.Println("  send -from FROM -to TO -amount AMOUNT - Kirim koin")
+	fmt.Println("  sendinference -from FROM -model MODEL_NAME -input INPUT_DATA -reward REWARD - Buat permintaan inferensi")
+	fmt.Println("  stake -from FROM -amount AMOUNT - Stake koin untuk menjadi node (koin akan di-burn)")
 	fmt.Println("  deploycontract -from FROM -file FILE_PATH - Terbitkan smart contract")
 	fmt.Println("  callcontract -from FROM -contract ADDR -function FUNC -args ARGS - Panggil fungsi kontrak")
 	fmt.Println("  publishmodel -from FROM -contract ADDR -name NAME -file FILE - Publikasikan model AI")
 	fmt.Println("  requestinference -from FROM -contract ADDR -model NAME -input DATA - Buat permintaan inferensi")
 	fmt.Println("  submitresponse -from FROM -contract ADDR -jobid ID -result DATA - Kirim hasil inferensi")
 	fmt.Println("  getjob -contract ADDR -jobid ID - Lihat detail pekerjaan inferensi")
+	fmt.Println("  createtask -from FROM -contract ADDR -model NAME -min P - Buat tugas Federated Learning")
+	fmt.Println("  jointask -from FROM -contract ADDR -taskid ID -stake STAKE [-participant ADDR] - Bergabung dengan tugas FL")
+	fmt.Println("  submithash -from FROM -contract ADDR -taskid ID -hash HASH [-participant ADDR] - Kirim hash model FL")
 	fmt.Println("  startnode -miner ADDRESS      - Mulai node")
 }
 
@@ -40,23 +45,67 @@ func (cli *CLI) validateArgs() {
 	}
 }
 
+func (cli *CLI) stake(from string, amount int) {
+	bc := core.NewBlockchain()
+	UTXOSet := core.UTXOSet{bc}
+	defer bc.Database().Close()
+
+	tx, err := bc.NewStakeTransaction(from, amount, &UTXOSet)
+	if err != nil {
+		log.Panic(err)
+	}
+
+	bc.AddBlock([]*core.Transaction{tx})
+	fmt.Printf("Berhasil stake (burn) %d koin dari %s\n", amount, from)
+}
+
+func (cli *CLI) sendInference(from, modelName, inputData string, reward int) {
+	bc := core.NewBlockchain()
+	UTXOSet := core.UTXOSet{bc}
+	defer bc.Database().Close()
+
+	tx, err := bc.NewInferenceRequestTransaction(from, modelName, inputData, reward, &UTXOSet)
+	if err != nil {
+		log.Panic(err)
+	}
+
+	bc.AddBlock([]*core.Transaction{tx})
+	fmt.Printf("Berhasil membuat permintaan inferensi untuk model '%s' dengan hadiah %d\n", modelName, reward)
+}
+
+func (cli *CLI) createTask(from, contract, model, minParticipants string) {
+	args := fmt.Sprintf("%s|%s", model, minParticipants)
+	cli.callContract(from, contract, "create_task", args)
+}
+
+func (cli *CLI) joinTask(from, contract, taskID, participant, stake string) {
+	if participant == "" {
+		participant = from
+	}
+	args := fmt.Sprintf("%s|%s|%s", taskID, participant, stake)
+	cli.callContract(from, contract, "join_task", args)
+}
+
+func (cli *CLI) submitHash(from, contract, taskID, hash, participant string) {
+	if participant == "" {
+		participant = from
+	}
+	args := fmt.Sprintf("%s|%s|%s", taskID, hash, participant)
+	cli.callContract(from, contract, "submit_hash", args)
+}
+
 func (cli *CLI) requestInference(from, contract, model, input string) {
-	// Untuk MVP, reward di-hardcode
 	reward := "10"
 	args := fmt.Sprintf("%s|%s|%s", model, input, reward)
 	cli.callContract(from, contract, "request_inference", args)
 }
 
 func (cli *CLI) submitResponse(from, contract, jobID, result string) {
-	// Argumen untuk submit_response(job_id, result, node_address)
 	args := fmt.Sprintf("%s|%s|%s", jobID, result, from)
 	cli.callContract(from, contract, "submit_response", args)
 }
 
 func (cli *CLI) getJob(contract, jobID string) {
-	// getjob tidak memerlukan pengirim, ini adalah panggilan read-only.
-	// Namun, arsitektur kita saat ini membungkus semuanya dalam transaksi.
-	// Untuk sementara, kita gunakan wallet pertama yang ada untuk membayar fee.
 	wallets, _ := wallet.NewWallets()
 	addresses := wallets.GetAddresses()
 	if len(addresses) == 0 {
@@ -66,7 +115,7 @@ func (cli *CLI) getJob(contract, jobID string) {
 }
 
 func (cli *CLI) publishModel(from, contractAddress, modelName, filePath string) {
-	fmt.Printf("Menghitung hash untuk file model '%s'\n", filePath)
+	fmt.Printf("Menghitung hash untuk file model '%s'...\n", filePath)
 	modelHash, err := utils.FileKeccak256(filePath)
 	if err != nil {
 		log.Panicf("Gagal menghitung hash file: %v", err)
@@ -218,19 +267,26 @@ func (cli *CLI) Run() {
 	reindexUTXOCmd := flag.NewFlagSet("reindexutxo", flag.ExitOnError)
 	printChainCmd := flag.NewFlagSet("printchain", flag.ExitOnError)
 	sendCmd := flag.NewFlagSet("send", flag.ExitOnError)
+	stakeCmd := flag.NewFlagSet("stake", flag.ExitOnError)
 	deployContractCmd := flag.NewFlagSet("deploycontract", flag.ExitOnError)
 	callContractCmd := flag.NewFlagSet("callcontract", flag.ExitOnError)
 	publishModelCmd := flag.NewFlagSet("publishmodel", flag.ExitOnError)
 	requestInferenceCmd := flag.NewFlagSet("requestinference", flag.ExitOnError)
 	submitResponseCmd := flag.NewFlagSet("submitresponse", flag.ExitOnError)
 	getJobCmd := flag.NewFlagSet("getjob", flag.ExitOnError)
+	createTaskCmd := flag.NewFlagSet("createtask", flag.ExitOnError)
+	joinTaskCmd := flag.NewFlagSet("jointask", flag.ExitOnError)
+	submitHashCmd := flag.NewFlagSet("submithash", flag.ExitOnError)
 	startNodeCmd := flag.NewFlagSet("startnode", flag.ExitOnError)
+	sendInferenceCmd := flag.NewFlagSet("sendinference", flag.ExitOnError)
 
 	createBlockchainAddress := createBlockchainCmd.String("address", "", "Alamat yang menerima hadiah genesis")
 	getBalanceAddress := getBalanceCmd.String("address", "", "Alamat wallet")
 	sendFrom := sendCmd.String("from", "", "Alamat pengirim")
 	sendTo := sendCmd.String("to", "", "Alamat penerima")
 	sendAmount := sendCmd.Int("amount", 0, "Jumlah yang dikirim")
+	stakeFrom := stakeCmd.String("from", "", "Alamat yang melakukan stake")
+	stakeAmount := stakeCmd.Int("amount", 0, "Jumlah yang di-stake")
 	deployContractFrom := deployContractCmd.String("from", "", "Alamat yang mendanai penerbitan kontrak")
 	deployContractFile := deployContractCmd.String("file", "", "Path ke file .lua smart contract")
 	callContractFrom := callContractCmd.String("from", "", "Alamat yang memanggil kontrak")
@@ -245,12 +301,30 @@ func (cli *CLI) Run() {
 	requestInferenceContract := requestInferenceCmd.String("contract", "", "Alamat kontrak inference market")
 	requestInferenceModel := requestInferenceCmd.String("model", "", "Nama model yang akan digunakan")
 	requestInferenceInput := requestInferenceCmd.String("input", "", "Data input untuk model")
+	sendInferenceFrom := sendInferenceCmd.String("from", "", "Alamat yang membuat permintaan")
+	sendInferenceModel := sendInferenceCmd.String("model", "", "Nama model yang akan digunakan")
+	sendInferenceInput := sendInferenceCmd.String("input", "", "Data input untuk model")
+	sendInferenceReward := sendInferenceCmd.Int("reward", 0, "Jumlah hadiah untuk inferensi")
 	submitResponseFrom := submitResponseCmd.String("from", "", "Alamat node yang mengirimkan hasil")
 	submitResponseContract := submitResponseCmd.String("contract", "", "Alamat kontrak inference market")
 	submitResponseJobID := submitResponseCmd.String("jobid", "", "ID pekerjaan inferensi")
 	submitResponseResult := submitResponseCmd.String("result", "", "Hasil inferensi")
 	getJobContract := getJobCmd.String("contract", "", "Alamat kontrak inference market")
 	getJobJobID := getJobCmd.String("jobid", "", "ID pekerjaan inferensi")
+	createTaskFrom := createTaskCmd.String("from", "", "Alamat yang membuat tugas FL")
+	createTaskContract := createTaskCmd.String("contract", "", "Alamat kontrak FL market")
+	createTaskModel := createTaskCmd.String("model", "", "Nama model awal untuk dilatih")
+	createTaskMinP := createTaskCmd.String("min", "", "Jumlah minimal peserta")
+	joinTaskFrom := joinTaskCmd.String("from", "", "Alamat peserta yang bergabung")
+	joinTaskContract := joinTaskCmd.String("contract", "", "Alamat kontrak FL market")
+	joinTaskTaskID := joinTaskCmd.String("taskid", "", "ID Tugas FL")
+	joinTaskParticipant := joinTaskCmd.String("participant", "", "(Opsional) Alamat peserta jika berbeda dari pengirim")
+	joinTaskStake := joinTaskCmd.String("stake", "0", "(Opsional) Jumlah stake yang dimiliki peserta")
+	submitHashFrom := submitHashCmd.String("from", "", "Alamat peserta yang mengirim")
+	submitHashContract := submitHashCmd.String("contract", "", "Alamat kontrak FL market")
+	submitHashTaskID := submitHashCmd.String("taskid", "", "ID Tugas FL")
+	submitHashHash := submitHashCmd.String("hash", "", "Hash dari model yang diperbarui")
+	submitHashParticipant := submitHashCmd.String("participant", "", "(Opsional) Alamat peserta jika berbeda dari pengirim")
 	startNodeMiner := startNodeCmd.String("miner", "", "Aktifkan penambangan dan kirim hadiah ke alamat ini")
 
 	switch os.Args[1] {
@@ -289,6 +363,11 @@ func (cli *CLI) Run() {
 		if err != nil {
 			log.Panic(err)
 		}
+	case "stake":
+		err := stakeCmd.Parse(os.Args[2:])
+		if err != nil {
+			log.Panic(err)
+		}
 	case "deploycontract":
 		err := deployContractCmd.Parse(os.Args[2:])
 		if err != nil {
@@ -319,8 +398,28 @@ func (cli *CLI) Run() {
 		if err != nil {
 			log.Panic(err)
 		}
+	case "createtask":
+		err := createTaskCmd.Parse(os.Args[2:])
+		if err != nil {
+			log.Panic(err)
+		}
+	case "jointask":
+		err := joinTaskCmd.Parse(os.Args[2:])
+		if err != nil {
+			log.Panic(err)
+		}
+	case "submithash":
+		err := submitHashCmd.Parse(os.Args[2:])
+		if err != nil {
+			log.Panic(err)
+		}
 	case "startnode":
 		err := startNodeCmd.Parse(os.Args[2:])
+		if err != nil {
+			log.Panic(err)
+		}
+	case "sendinference":
+		err := sendInferenceCmd.Parse(os.Args[2:])
 		if err != nil {
 			log.Panic(err)
 		}
@@ -369,6 +468,14 @@ func (cli *CLI) Run() {
 		cli.send(*sendFrom, *sendTo, *sendAmount)
 	}
 
+	if stakeCmd.Parsed() {
+		if *stakeFrom == "" || *stakeAmount <= 0 {
+			stakeCmd.Usage()
+			os.Exit(1)
+		}
+		cli.stake(*stakeFrom, *stakeAmount)
+	}
+
 	if deployContractCmd.Parsed() {
 		if *deployContractFrom == "" || *deployContractFile == "" {
 			deployContractCmd.Usage()
@@ -401,6 +508,14 @@ func (cli *CLI) Run() {
 		cli.requestInference(*requestInferenceFrom, *requestInferenceContract, *requestInferenceModel, *requestInferenceInput)
 	}
 
+	if sendInferenceCmd.Parsed() {
+		if *sendInferenceFrom == "" || *sendInferenceModel == "" || *sendInferenceInput == "" || *sendInferenceReward <= 0 {
+			sendInferenceCmd.Usage()
+			os.Exit(1)
+		}
+		cli.sendInference(*sendInferenceFrom, *sendInferenceModel, *sendInferenceInput, *sendInferenceReward)
+	}
+
 	if submitResponseCmd.Parsed() {
 		if *submitResponseFrom == "" || *submitResponseContract == "" || *submitResponseJobID == "" || *submitResponseResult == "" {
 			submitResponseCmd.Usage()
@@ -415,6 +530,30 @@ func (cli *CLI) Run() {
 			os.Exit(1)
 		}
 		cli.getJob(*getJobContract, *getJobJobID)
+	}
+
+	if createTaskCmd.Parsed() {
+		if *createTaskFrom == "" || *createTaskContract == "" || *createTaskModel == "" || *createTaskMinP == "" {
+			createTaskCmd.Usage()
+			os.Exit(1)
+		}
+		cli.createTask(*createTaskFrom, *createTaskContract, *createTaskModel, *createTaskMinP)
+	}
+
+	if joinTaskCmd.Parsed() {
+		if *joinTaskFrom == "" || *joinTaskContract == "" || *joinTaskTaskID == "" {
+			joinTaskCmd.Usage()
+			os.Exit(1)
+		}
+		cli.joinTask(*joinTaskFrom, *joinTaskContract, *joinTaskTaskID, *joinTaskParticipant, *joinTaskStake)
+	}
+
+	if submitHashCmd.Parsed() {
+		if *submitHashFrom == "" || *submitHashContract == "" || *submitHashTaskID == "" || *submitHashHash == "" {
+			submitHashCmd.Usage()
+			os.Exit(1)
+		}
+		cli.submitHash(*submitHashFrom, *submitHashContract, *submitHashTaskID, *submitHashHash, *submitHashParticipant)
 	}
 
 	if startNodeCmd.Parsed() {
