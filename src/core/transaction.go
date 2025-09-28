@@ -10,11 +10,22 @@ import (
 	"log"
 )
 
+// TransactionType mendefinisikan jenis-jenis transaksi
+type TransactionType int
+
+const (
+	TxNormal           TransactionType = iota // Transaksi transfer UTXO biasa
+	TxContractCreation                        // Transaksi untuk membuat kontrak baru
+	TxContractCall                            // Transaksi untuk memanggil fungsi di kontrak
+)
+
 // Transaction merepresentasikan sebuah transaksi
 type Transaction struct {
 	ID      []byte
 	Inputs  []TXInput
 	Outputs []TXOutput
+	Type    TransactionType // Jenis transaksi
+	Payload []byte          // Data tambahan (misal: kode kontrak atau panggilan fungsi)
 }
 
 // TXOutputs adalah koleksi dari TXOutput, digunakan untuk serialisasi
@@ -79,7 +90,7 @@ func NewCoinbaseTX(pubKeyHash []byte, data string) *Transaction {
 
 	txInput := TXInput{[]byte{}, -1, nil, []byte(data)}
 	txOutput := TXOutput{100, pubKeyHash}
-	tx := Transaction{nil, []TXInput{txInput}, []TXOutput{txOutput}}
+	tx := Transaction{nil, []TXInput{txInput}, []TXOutput{txOutput}, TxNormal, nil}
 	tx.ID = tx.Hash() // Menggunakan Hash() bukan SetID() lagi
 
 	return &tx
@@ -98,7 +109,7 @@ func (tx *Transaction) TrimmedCopy() Transaction {
 		outputs = append(outputs, TXOutput{out.Value, out.PubKeyHash})
 	}
 
-	txCopy := Transaction{tx.ID, inputs, outputs}
+	txCopy := Transaction{tx.ID, inputs, outputs, tx.Type, tx.Payload}
 
 	return txCopy
 }

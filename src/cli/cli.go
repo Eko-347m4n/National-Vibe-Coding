@@ -24,6 +24,8 @@ func (cli *CLI) printUsage() {
 	fmt.Println("  reindexutxo                 - Bangun ulang UTXO set")
 	fmt.Println("  printchain                  - Cetak semua blok di blockchain")
 	fmt.Println("  send -from FROM -to TO -amount AMOUNT - Kirim sejumlah koin dari satu alamat ke alamat lain")
+	fmt.Println("  deploycontract -from FROM -file FILE_PATH - Terbitkan smart contract dari file Lua")
+	fmt.Println("  callcontract -from FROM -contract ADDR -function FUNC -args ARGS - Panggil fungsi pada smart contract")
 	fmt.Println("  startnode -miner ADDRESS      - Mulai node dengan ID yang diatur dari variabel lingkungan NODE_ID dan mulai menambang")
 }
 
@@ -32,6 +34,44 @@ func (cli *CLI) validateArgs() {
 		cli.printUsage()
 		os.Exit(1)
 	}
+}
+
+func (cli *CLI) callContract(from, contractAddress, function, args string) {
+	bc := core.NewBlockchain()
+	UTXOSet := core.UTXOSet{bc}
+	defer bc.Database().Close()
+
+	// Buat transaksi pemanggilan kontrak
+	tx, err := bc.NewContractCallTransaction(from, contractAddress, function, args, &UTXOSet)
+	if err != nil {
+		log.Panic(err)
+	}
+
+	// Tambahkan transaksi ke blok baru
+	bc.AddBlock([]*core.Transaction{tx})
+	fmt.Printf("Pemanggilan fungsi '%s' pada kontrak %s berhasil dikirim!\n", function, contractAddress)
+}
+
+func (cli *CLI) deployContract(from, filePath string) {
+	// Baca kode kontrak dari file
+	code, err := os.ReadFile(filePath)
+	if err != nil {
+		log.Panicf("Gagal membaca file kontrak '%s': %v", filePath, err)
+	}
+
+	bc := core.NewBlockchain()
+	UTXOSet := core.UTXOSet{bc}
+	defer bc.Database().Close()
+
+	// Buat transaksi pembuatan kontrak
+	tx, err := bc.NewContractCreationTransaction(from, code, &UTXOSet)
+	if err != nil {
+		log.Panic(err)
+	}
+
+	// Tambahkan transaksi ke blok baru
+	bc.AddBlock([]*core.Transaction{tx})
+	fmt.Printf("Kontrak dari file '%s' berhasil diterbitkan!\n", filePath)
 }
 
 func (cli *CLI) createBlockchain(address string) {
@@ -141,6 +181,8 @@ func (cli *CLI) Run() {
 	reindexUTXOCmd := flag.NewFlagSet("reindexutxo", flag.ExitOnError)
 	printChainCmd := flag.NewFlagSet("printchain", flag.ExitOnError)
 	sendCmd := flag.NewFlagSet("send", flag.ExitOnError)
+	deployContractCmd := flag.NewFlagSet("deploycontract", flag.ExitOnError)
+	callContractCmd := flag.NewFlagSet("callcontract", flag.ExitOnError)
 	startNodeCmd := flag.NewFlagSet("startnode", flag.ExitOnError)
 
 	createBlockchainAddress := createBlockchainCmd.String("address", "", "Alamat yang menerima hadiah genesis")
@@ -148,6 +190,12 @@ func (cli *CLI) Run() {
 	sendFrom := sendCmd.String("from", "", "Alamat pengirim")
 	sendTo := sendCmd.String("to", "", "Alamat penerima")
 	sendAmount := sendCmd.Int("amount", 0, "Jumlah yang dikirim")
+	deployContractFrom := deployContractCmd.String("from", "", "Alamat yang mendanai penerbitan kontrak")
+	deployContractFile := deployContractCmd.String("file", "", "Path ke file .lua smart contract")
+	callContractFrom := callContractCmd.String("from", "", "Alamat yang memanggil kontrak")
+	callContractAddress := callContractCmd.String("contract", "", "Alamat smart contract yang akan dipanggil")
+	callContractFunction := callContractCmd.String("function", "", "Fungsi di dalam kontrak yang akan dipanggil")
+	callContractArgs := callContractCmd.String("args", "", "Argumen untuk fungsi kontrak (dipisahkan koma)")
 	startNodeMiner := startNodeCmd.String("miner", "", "Aktifkan penambangan dan kirim hadiah ke alamat ini")
 
 	switch os.Args[1] {
@@ -183,6 +231,16 @@ func (cli *CLI) Run() {
 		}
 	case "send":
 		err := sendCmd.Parse(os.Args[2:])
+		if err != nil {
+			log.Panic(err)
+		}
+	case "deploycontract":
+		err := deployContractCmd.Parse(os.Args[2:])
+		if err != nil {
+			log.Panic(err)
+		}
+	case "callcontract":
+		err := callContractCmd.Parse(os.Args[2:])
 		if err != nil {
 			log.Panic(err)
 		}
@@ -234,6 +292,22 @@ func (cli *CLI) Run() {
 			os.Exit(1)
 		}
 		cli.send(*sendFrom, *sendTo, *sendAmount)
+	}
+
+	if deployContractCmd.Parsed() {
+		if *deployContractFrom == "" || *deployContractFile == "" {
+			deployContractCmd.Usage()
+			os.Exit(1)
+		}
+		cli.deployContract(*deployContractFrom, *deployContractFile)
+	}
+
+	if callContractCmd.Parsed() {
+		if *callContractFrom == "" || *callContractAddress == "" || *callContractFunction == "" {
+			callContractCmd.Usage()
+			os.Exit(1)
+		}
+		cli.callContract(*callContractFrom, *callContractAddress, *callContractFunction, *callContractArgs)
 	}
 
 	if startNodeCmd.Parsed() {

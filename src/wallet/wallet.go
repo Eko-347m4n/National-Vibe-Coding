@@ -83,3 +83,20 @@ func DecodeAddress(address string) []byte {
 
 	return pubKeyHash
 }
+
+// ValidateAddress memeriksa apakah sebuah alamat valid
+func ValidateAddress(address string) bool {
+	pubKeyHash, err := base58.Decode(address)
+	if err != nil {
+		return false
+	}
+	if len(pubKeyHash) < addressChecksumLen {
+		return false
+	}
+	actualChecksum := pubKeyHash[len(pubKeyHash)-addressChecksumLen:]
+	version := pubKeyHash[0]
+	pubKeyHash = pubKeyHash[1 : len(pubKeyHash)-addressChecksumLen]
+	targetChecksum := checksum(append([]byte{version}, pubKeyHash...))
+
+	return bytes.Compare(actualChecksum, targetChecksum) == 0
+}
