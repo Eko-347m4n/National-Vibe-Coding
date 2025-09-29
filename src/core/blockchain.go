@@ -11,7 +11,7 @@ import (
 	"log"
 	"math/big"
 	"os"
-	"strings"
+
 	"time"
 
 	"github.com/dgraph-io/badger/v4"
@@ -19,6 +19,19 @@ import (
 	"swatantra-node/src/vm"
 	"swatantra-node/src/wallet"
 )
+
+var luaUtilsCode string
+
+func init() {
+	code, err := os.ReadFile("utils.lua")
+	if err != nil {
+		// Jika file utils tidak ada, kita bisa lanjutkan tanpa itu, tapi beri peringatan.
+		log.Printf("Peringatan: Gagal membaca utils.lua: %v. Fungsi utilitas tidak akan tersedia.", err)
+		luaUtilsCode = ""
+	} else {
+		luaUtilsCode = string(code)
+	}
+}
 
 // ContractCallPayload adalah struktur data untuk payload pemanggilan fungsi kontrak
 type ContractCallPayload struct {
@@ -202,259 +215,11 @@ func (bc *Blockchain) FindTransaction(ID []byte) (Transaction, error) {
 	return Transaction{}, errors.New("Transaction is not found")
 }
 
-// NewContractCallTransaction membuat transaksi untuk memanggil fungsi pada kontrak
-func (bc *Blockchain) NewContractCallTransaction(from, contractAddress, function, args string, UTXOSet *UTXOSet) (*Transaction, error) {
-	const fee = 1 // Biaya sementara untuk memanggil kontrak
-
-	wallets, err := wallet.NewWallets()
-	if err != nil {
-		return nil, err
-	}
-	w := wallets.GetWallet(from)
-	pubKeyHash := wallet.HashPubKey(w.PublicKey)
-
-	acc, validOutputs := UTXOSet.FindSpendableOutputs(pubKeyHash, fee)
-	if acc < fee {
-		return nil, errors.New("Error: Saldo tidak cukup untuk membayar biaya pemanggilan kontrak")
-	}
-
-	var inputs []TXInput
-	var outputs []TXOutput
-
-	// Buat input
-	for txid, outs := range validOutputs {
-		txID, err := hex.DecodeString(txid)
-		if err != nil {
-			return nil, err
-		}
-		for _, out := range outs {
-			input := TXInput{txID, out, nil, w.PublicKey}
-			inputs = append(inputs, input)
-		}
-	}
-
-	// Buat output (hanya kembalian jika ada)
-	if acc > fee {
-		outputs = append(outputs, TXOutput{acc - fee, pubKeyHash})
-	}
-
-	// Buat payload JSON
-	argSlice := strings.Split(args, "|")
-	payloadData := ContractCallPayload{
-		ContractAddress: contractAddress,
-		FunctionName:    function,
-		Args:            argSlice,
-	}
-
-payloadBytes, err := json.Marshal(payloadData)
-	if err != nil {
-		return nil, fmt.Errorf("gagal membuat payload kontrak: %w", err)
-	}
-
-	tx := Transaction{nil, inputs, outputs, TxContractCall, payloadBytes}
-	tx.ID = tx.Hash()
-	bc.SignTransaction(&tx, w.PrivateKey)
-
-	return &tx, nil
-}
 
 
-// NewContractCreationTransaction membuat transaksi untuk menerbitkan kontrak baru
-func (bc *Blockchain) NewContractCreationTransaction(from string, code []byte, UTXOSet *UTXOSet) (*Transaction, error) {
-	var inputs []TXInput
-	var outputs []TXOutput
-	const fee = 1 // Biaya sementara untuk menerbitkan kontrak
 
-	wallets, err := wallet.NewWallets()
-	if err != nil {
-		return nil, err
-	}
-	w := wallets.GetWallet(from)
-	pubKeyHash := wallet.HashPubKey(w.PublicKey)
 
-	acc, validOutputs := UTXOSet.FindSpendableOutputs(pubKeyHash, fee)
 
-	if acc < fee {
-		return nil, errors.New("Error: Saldo tidak cukup untuk membayar biaya penerbitan kontrak")
-	}
-
-	// Buat input
-	for txid, outs := range validOutputs {
-		txID, err := hex.DecodeString(txid)
-		if err != nil {
-			return nil, err
-		}
-
-		for _, out := range outs {
-			input := TXInput{txID, out, nil, w.PublicKey}
-			inputs = append(inputs, input)
-		}
-	}
-
-	// Buat output (hanya kembalian jika ada)
-	if acc > fee {
-		outputs = append(outputs, TXOutput{acc - fee, pubKeyHash}) // kembalian
-	}
-
-	tx := Transaction{nil, inputs, outputs, TxContractCreation, code}
-	tx.ID = tx.Hash()
-	bc.SignTransaction(&tx, w.PrivateKey)
-
-	return &tx, nil
-}
-
-// NewUTXOTransaction membuat transaksi UTXO baru
-func (bc *Blockchain) NewUTXOTransaction(from, to string, amount int, UTXOSet *UTXOSet) (*Transaction, error) {
-	var inputs []TXInput
-	var outputs []TXOutput
-
-	wallets, err := wallet.NewWallets()
-	if err != nil {
-		return nil, err
-	}
-	w := wallets.GetWallet(from)
-	pubKeyHash := wallet.HashPubKey(w.PublicKey)
-
-	acc, validOutputs := UTXOSet.FindSpendableOutputs(pubKeyHash, amount)
-
-	if acc < amount {
-		return nil, errors.New("Error: Not enough funds")
-	}
-
-	// Buat input
-	for txid, outs := range validOutputs {
-		txID, err := hex.DecodeString(txid)
-		if err != nil {
-			return nil, err
-		}
-
-		for _, out := range outs {
-			input := TXInput{txID, out, nil, w.PublicKey}
-			inputs = append(inputs, input)
-		}
-	}
-
-	// Buat output
-	toPubKeyHash := wallet.DecodeAddress(to)
-	outputs = append(outputs, TXOutput{amount, toPubKeyHash})
-	if acc > amount {
-		outputs = append(outputs, TXOutput{acc-amount, pubKeyHash}) // kembalian
-	}
-
-	tx := Transaction{nil, inputs, outputs, TxNormal, nil}
-	tx.ID = tx.Hash()
-	bc.SignTransaction(&tx, w.PrivateKey)
-
-	return &tx, nil
-}
-
-// NewStakeTransaction membuat transaksi untuk 'membakar' koin sebagai stake
-func (bc *Blockchain) NewStakeTransaction(from string, amount int, UTXOSet *UTXOSet) (*Transaction, error) {
-	wallets, err := wallet.NewWallets()
-	if err != nil {
-		return nil, err
-	}
-	w := wallets.GetWallet(from)
-	pubKeyHash := wallet.HashPubKey(w.PublicKey)
-
-	acc, validOutputs := UTXOSet.FindSpendableOutputs(pubKeyHash, amount)
-
-	if acc < amount {
-		return nil, errors.New("Error: Saldo tidak cukup untuk stake")
-	}
-
-	var inputs []TXInput
-	var outputs []TXOutput
-
-	// Buat input
-	for txid, outs := range validOutputs {
-		txID, err := hex.DecodeString(txid)
-		if err != nil {
-			return nil, err
-		}
-
-		for _, out := range outs {
-			input := TXInput{txID, out, nil, w.PublicKey}
-			inputs = append(inputs, input)
-		}
-	}
-
-	// Buat output kembalian (jika ada)
-	if acc > amount {
-		outputs = append(outputs, TXOutput{acc - amount, pubKeyHash})
-	}
-
-	// Output yang di-stake (dibakar) - tidak dapat dibelanjakan
-	// Untuk MVP, kita bisa membuat output ini ke alamat yang tidak dapat dibelanjakan (misal: hash nol)
-	// Atau, kita bisa membuat output ke alamat khusus yang menandakan 'staked'
-	// Untuk saat ini, kita akan membuat output ke hash nol untuk mensimulasikan 'burn'
-	outputs = append(outputs, TXOutput{amount, []byte{}} /* Burned output */)
-
-	tx := Transaction{nil, inputs, outputs, TxNormal, nil} // TxNormal untuk saat ini
-	tx.ID = tx.Hash()
-	bc.SignTransaction(&tx, w.PrivateKey)
-
-	return &tx, nil
-}
-
-// NewInferenceRequestTransaction membuat transaksi untuk permintaan inferensi
-func (bc *Blockchain) NewInferenceRequestTransaction(from, modelName, inputData string, reward int, UTXOSet *UTXOSet) (*Transaction, error) {
-	const fee = 1 // Biaya untuk membuat permintaan inferensi
-
-	wallets, err := wallet.NewWallets()
-	if err != nil {
-		return nil, err
-	}
-	w := wallets.GetWallet(from)
-	pubKeyHash := wallet.HashPubKey(w.PublicKey)
-
-	acc, validOutputs := UTXOSet.FindSpendableOutputs(pubKeyHash, fee)
-	if acc < fee {
-		return nil, errors.New("Error: Saldo tidak cukup untuk membayar biaya permintaan inferensi")
-	}
-
-	var inputs []TXInput
-	var outputs []TXOutput
-
-	// Buat input
-	for txid, outs := range validOutputs {
-		txID, err := hex.DecodeString(txid)
-		if err != nil {
-			return nil, err
-		}
-		for _, out := range outs {
-			input := TXInput{txID, out, nil, w.PublicKey}
-			inputs = append(inputs, input)
-		}
-	}
-
-	// Buat output (hanya kembalian jika ada)
-	if acc > fee {
-		outputs = append(outputs, TXOutput{acc - fee, pubKeyHash})
-	}
-
-	// Buat payload JSON untuk permintaan inferensi
-	payloadData := struct {
-		ModelName string `json:"model_name"`
-		InputData string `json:"input_data"`
-		Reward    int    `json:"reward"`
-	}{
-		ModelName: modelName,
-		InputData: inputData,
-		Reward:    reward,
-	}
-
-payloadBytes, err := json.Marshal(payloadData)
-	if err != nil {
-		return nil, fmt.Errorf("gagal membuat payload permintaan inferensi: %w", err)
-	}
-
-	tx := Transaction{nil, inputs, outputs, TxInferenceRequest, payloadBytes} // TxInferenceRequest (new type)
-	tx.ID = tx.Hash()
-	bc.SignTransaction(&tx, w.PrivateKey)
-
-	return &tx, nil
-}
 
 // SignTransaction menandatangani input dari sebuah Transaction
 func (bc *Blockchain) SignTransaction(tx *Transaction, privKey ed25519.PrivateKey) {
@@ -574,7 +339,14 @@ func (bc *Blockchain) processContractCreation(tx *Transaction, txn *badger.Txn) 
 	vmInstance := vm.NewVM(contractGasLimit)
 	defer vmInstance.Close()
 
-	// Muat kode untuk mendefinisikan fungsi
+	// Muat kode utilitas terlebih dahulu
+	if luaUtilsCode != "" {
+		if err := vmInstance.Execute(luaUtilsCode); err != nil {
+			log.Panicf("Gagal memuat kode utilitas Lua: %v", err)
+		}
+	}
+
+	// Muat kode kontrak utama
 	if err := vmInstance.Execute(string(tx.Payload)); err != nil {
 		log.Panicf("Gagal memuat kode kontrak: %v", err)
 	}
@@ -638,6 +410,13 @@ func (bc *Blockchain) processContractCall(tx *Transaction, txn *badger.Txn) {
 	vmInstance := vm.NewVM(contractGasLimit)
 	vmInstance.State = currentState
 	defer vmInstance.Close()
+
+	// Muat kode utilitas terlebih dahulu
+	if luaUtilsCode != "" {
+		if err := vmInstance.Execute(luaUtilsCode); err != nil {
+			log.Panicf("Gagal memuat kode utilitas Lua: %v", err)
+		}
+	}
 
 	if err := vmInstance.Execute(string(contractCode)); err != nil {
 		log.Panicf("Gagal memuat kode kontrak ke VM: %v", err)
