@@ -32,7 +32,8 @@ func (cli *CLI) printUsage() {
 	fmt.Println("  requestinference -from FROM -contract ADDR -model NAME -input DATA - Buat permintaan inferensi")
 	fmt.Println("  submitresponse -from FROM -contract ADDR -jobid ID -result DATA - Kirim hasil inferensi")
 	fmt.Println("  getjob -contract ADDR -jobid ID - Lihat detail pekerjaan inferensi")
-	fmt.Println("  createtask -from FROM -contract ADDR -model NAME -min P - Buat tugas Federated Learning")
+	fmt.Println("  createtask -from FROM -contract ADDR -model NAME -min P -reward R - Buat tugas Federated Learning")
+	fmt.Println("  aggregatefl -from FROM -contract ADDR -taskid ID - Lakukan agregasi dan finalisasi tugas FL")
 	fmt.Println("  jointask -from FROM -contract ADDR -taskid ID -stake STAKE [-participant ADDR] - Bergabung dengan tugas FL")
 	fmt.Println("  submithash -from FROM -contract ADDR -taskid ID -hash HASH [-participant ADDR] - Kirim hash model FL")
 	fmt.Println("  registernode -from FROM -contract ADDR - Mendaftarkan alamat sebagai node inference")
@@ -74,8 +75,8 @@ func (cli *CLI) sendInference(from, modelName, inputData string, reward int) {
 	fmt.Printf("Berhasil membuat permintaan inferensi untuk model '%s' dengan hadiah %d\n", modelName, reward)
 }
 
-func (cli *CLI) createTask(from, contract, model, minParticipants string) {
-	args := fmt.Sprintf("%s|%s", model, minParticipants)
+func (cli *CLI) createTask(from, contract, model, minParticipants, reward string) {
+	args := fmt.Sprintf("%s|%s|%s", model, minParticipants, reward)
 	cli.callContract(from, contract, "create_task", args)
 }
 
@@ -91,8 +92,51 @@ func (cli *CLI) submitHash(from, contract, taskID, hash, participant string) {
 	if participant == "" {
 		participant = from
 	}
-	args := fmt.Sprintf("%s|%s|%s", taskID, hash, participant)
+
+	fmt.Println("Mengenkripsi hash model...")
+	encryptedHash, err := utils.Encrypt([]byte(hash))
+	if err != nil {
+		log.Panicf("Gagal mengenkripsi hash: %v", err)
+	}
+	fmt.Printf("Hash terenkripsi (Base64): %s\n", encryptedHash)
+
+	args := fmt.Sprintf("%s|%s|%s", taskID, encryptedHash, participant)
 	cli.callContract(from, contract, "submit_hash", args)
+}
+
+func (cli *CLI) aggregateFL(from, contract, taskID string) {
+	// Ini adalah simulasi dari Aggregator Daemon
+	log.Println("[AGGREGATOR DAEMON] Memulai proses agregasi untuk tugas", taskID)
+
+	// 1. Ambil semua hash yang telah dikirimkan.
+	// Di dunia nyata, daemon akan memanggil node blockchain untuk mengambil semua hash terenkripsi
+	// yang terkait dengan taskID dari state kontrak.
+	log.Println("[AGGREGATOR DAEMON] Mensimulasikan pengambilan hash terenkripsi dari state kontrak...")
+
+	// Contoh hash terenkripsi (diambil dari output 'submithash' sebelumnya)
+	// Anda bisa mengganti ini dengan hash terenkripsi aktual dari log untuk pengujian.
+	simulatedEncryptedHash := "CiCCM4boNmyg3T5+t+P2UdGvYyEwV+i5P9vj/ROl3a2b+XfA1A==" // Ini adalah placeholder
+	log.Printf("[AGGREGATOR DAEMON] Ditemukan hash terenkripsi (contoh): %s", simulatedEncryptedHash)
+
+	// 2. Dekripsi hash
+	log.Println("[AGGREGATOR DAEMON] Mensimulasikan dekripsi hash...")
+	decryptedHash, err := utils.Decrypt(simulatedEncryptedHash)
+	if err != nil {
+		// Di dunia nyata, jika dekripsi gagal, ini bisa menandakan hash yang korup atau salah
+		log.Printf("[AGGREGATOR DAEMON] Peringatan: Gagal mendekripsi contoh hash: %v. Melanjutkan dengan data simulasi.", err)
+		decryptedHash = []byte("fallback_decrypted_hash")
+	}
+	log.Printf("[AGGREGATOR DAEMON] Hash berhasil didekripsi (contoh): %s", string(decryptedHash))
+
+	// 3. Agregasi
+	// Di dunia nyata, daemon akan mendekripsi SEMUA hash dan melakukan agregasi (misal: FedAvg).
+	// Di sini, kita tetap menggunakan simulasi sederhana.
+	aggregatedHash := "simulated_aggregated_hash_from_" + string(decryptedHash)
+	log.Println("[AGGREGATOR DAEMON] Hasil agregasi (simulasi):", aggregatedHash)
+
+	// 4. Panggil finalize_task di kontrak untuk mencatat hasil dan mendistribusikan hadiah
+	args := fmt.Sprintf("%s|%s", taskID, aggregatedHash)
+	cli.callContract(from, contract, "finalize_task", args)
 }
 
 func (cli *CLI) requestInference(from, contract, model, input string) {
@@ -285,6 +329,7 @@ func (cli *CLI) Run() {
 	createTaskCmd := flag.NewFlagSet("createtask", flag.ExitOnError)
 	joinTaskCmd := flag.NewFlagSet("jointask", flag.ExitOnError)
 	submitHashCmd := flag.NewFlagSet("submithash", flag.ExitOnError)
+	aggregateFLCmd := flag.NewFlagSet("aggregatefl", flag.ExitOnError)
 	registerNodeCmd := flag.NewFlagSet("registernode", flag.ExitOnError)
 	startNodeCmd := flag.NewFlagSet("startnode", flag.ExitOnError)
 	sendInferenceCmd := flag.NewFlagSet("sendinference", flag.ExitOnError)
@@ -324,6 +369,7 @@ func (cli *CLI) Run() {
 	createTaskContract := createTaskCmd.String("contract", "", "Alamat kontrak FL market")
 	createTaskModel := createTaskCmd.String("model", "", "Nama model awal untuk dilatih")
 	createTaskMinP := createTaskCmd.String("min", "", "Jumlah minimal peserta")
+	createTaskReward := createTaskCmd.String("reward", "0", "Total hadiah untuk tugas FL")
 	joinTaskFrom := joinTaskCmd.String("from", "", "Alamat peserta yang bergabung")
 	joinTaskContract := joinTaskCmd.String("contract", "", "Alamat kontrak FL market")
 	joinTaskTaskID := joinTaskCmd.String("taskid", "", "ID Tugas FL")
@@ -334,6 +380,9 @@ func (cli *CLI) Run() {
 	submitHashTaskID := submitHashCmd.String("taskid", "", "ID Tugas FL")
 	submitHashHash := submitHashCmd.String("hash", "", "Hash dari model yang diperbarui")
 	submitHashParticipant := submitHashCmd.String("participant", "", "(Opsional) Alamat peserta jika berbeda dari pengirim")
+	aggregateFLFrom := aggregateFLCmd.String("from", "", "Alamat yang memicu agregasi")
+    aggregateFLContract := aggregateFLCmd.String("contract", "", "Alamat kontrak FL market")
+    aggregateFLTaskID := aggregateFLCmd.String("taskid", "", "ID Tugas FL yang akan diagregasi")
 	registerNodeFrom := registerNodeCmd.String("from", "", "Alamat yang mendaftar sebagai node")
     registerNodeContract := registerNodeCmd.String("contract", "", "Alamat kontrak oracle registry")
 	startNodeMiner := startNodeCmd.String("miner", "", "Aktifkan penambangan dan kirim hadiah ke alamat ini")
@@ -426,6 +475,11 @@ func (cli *CLI) Run() {
 		}
 	case "registernode":
 		err := registerNodeCmd.Parse(os.Args[2:])
+		if err != nil {
+			log.Panic(err)
+		}
+	case "aggregatefl":
+		err := aggregateFLCmd.Parse(os.Args[2:])
 		if err != nil {
 			log.Panic(err)
 		}
@@ -549,11 +603,11 @@ func (cli *CLI) Run() {
 	}
 
 	if createTaskCmd.Parsed() {
-		if *createTaskFrom == "" || *createTaskContract == "" || *createTaskModel == "" || *createTaskMinP == "" {
+		if *createTaskFrom == "" || *createTaskContract == "" || *createTaskModel == "" || *createTaskMinP == "" || *createTaskReward == "" {
 			createTaskCmd.Usage()
 			os.Exit(1)
 		}
-		cli.createTask(*createTaskFrom, *createTaskContract, *createTaskModel, *createTaskMinP)
+		cli.createTask(*createTaskFrom, *createTaskContract, *createTaskModel, *createTaskMinP, *createTaskReward)
 	}
 
 	if joinTaskCmd.Parsed() {
@@ -578,6 +632,14 @@ func (cli *CLI) Run() {
             os.Exit(1)
         }
         cli.registerNode(*registerNodeFrom, *registerNodeContract)
+    }
+
+	if aggregateFLCmd.Parsed() {
+        if *aggregateFLFrom == "" || *aggregateFLContract == "" || *aggregateFLTaskID == "" {
+            aggregateFLCmd.Usage()
+            os.Exit(1)
+        }
+        cli.aggregateFL(*aggregateFLFrom, *aggregateFLContract, *aggregateFLTaskID)
     }
 
 	if startNodeCmd.Parsed() {
