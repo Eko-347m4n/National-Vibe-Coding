@@ -59,7 +59,7 @@ end
 function get_proposal(proposal_id)
     local title = get_value("proposal:" .. proposal_id .. ":title")
     if title == nil then
-        return "{ \"error\": \"Proposal not found.\" }"
+        return json.encode({ error = "Proposal not found." })
     end
 
     local desc = get_value("proposal:" .. proposal_id .. ":desc")
@@ -67,10 +67,16 @@ function get_proposal(proposal_id)
     local votes_against = get_value("proposal:" .. proposal_id .. ":votes_against")
     local status = get_value("proposal:" .. proposal_id .. ":status")
 
-    local json = string.format("{\"id\":\"%s\",\"title\":\"%s\",\"description\":\"%s\",\"votes_for\":%s,\"votes_against\":%s,\"status\":\"%s\"}", 
-        proposal_id, title, desc, votes_for, votes_against, status)
+    local proposal_data = {
+        id = proposal_id,
+        title = title,
+        description = desc,
+        votes_for = tonumber(votes_for),
+        votes_against = tonumber(votes_against),
+        status = status
+    }
     
-    return json
+    return json.encode(proposal_data)
 end
 
 -- -- BUDGET & AI ORACLE FUNCTIONS -- --
@@ -78,11 +84,16 @@ end
 -- Get the current budget status.
 -- @return A JSON string with budget details.
 function get_budget()
-    local total = get_value("total_budget")
-    local spent = get_value("spent_budget")
-    local remaining = tonumber(total) - tonumber(spent)
+    local total = tonumber(get_value("total_budget"))
+    local spent = tonumber(get_value("spent_budget"))
+    local remaining = total - spent
 
-    return string.format("{\"total\":%s, \"spent\":%s, \"remaining\":%s}", total, spent, tostring(remaining))
+    local budget_data = {
+        total = total,
+        spent = spent,
+        remaining = remaining
+    }
+    return json.encode(budget_data)
 end
 
 -- This is a placeholder showing how the kit would integrate with an AI Oracle.
