@@ -1,0 +1,249 @@
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Fira+Code:wght@400;500&display=swap');
+
+:root {
+    --primary-color: #007bff;
+    --primary-hover-color: #0056b3;
+    --secondary-color: #6c757d;
+    --secondary-hover-color: #5a6268;
+    --background-color: #f9fafb;
+    --card-background-color: #ffffff;
+    --text-color: #212529;
+    --muted-text-color: #6c757d;
+    --border-color: #e9ecef;
+    --success-color: #28a745;
+    --error-color: #dc3545;
+    --code-bg-color: #282c34;
+    --code-text-color: #f1f1f1;
+}
+
+body {
+    font-family: 'Poppins', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background-color: var(--background-color);
+    color: var(--text-color);
+    margin: 0;
+    padding: 2rem;
+    line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+.container {
+    max-width: 800px;
+    margin: 0 auto;
+}
+
+header {
+    text-align: center;
+    margin-bottom: 4rem;
+    padding-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+header h1 {
+    font-size: 2.75rem;
+    font-weight: 700;
+    color: var(--text-color);
+    margin-bottom: 0.5rem;
+}
+
+header p {
+    font-size: 1.15rem;
+    color: var(--muted-text-color);
+    max-width: 600px;
+    margin: 0 auto;
+}
+
+.back-btn {
+    display: inline-block;
+    margin-bottom: 2rem;
+    text-decoration: none;
+    font-weight: 600;
+    color: var(--primary-color);
+    transition: color 0.2s ease;
+}
+
+.back-btn:hover {
+    color: var(--primary-hover-color);
+}
+
+.section {
+    background: var(--card-background-color);
+    padding: 2.5rem;
+    border-radius: 16px;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.05);
+    margin-bottom: 3rem;
+    border: 1px solid var(--border-color);
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.section:hover {
+    transform: translateY(-6px);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.08);
+}
+
+h2 {
+    font-size: 1.75rem;
+    font-weight: 600;
+    color: var(--text-color);
+    border-left: 4px solid var(--primary-color);
+    padding-left: 1.25rem;
+    margin-top: 0;
+    margin-bottom: 2rem;
+}
+
+.input-group {
+    margin-bottom: 1.5rem;
+}
+
+input[type="text"] {
+    width: 100%;
+    padding: 14px 18px;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    font-size: 1rem;
+    font-family: 'Poppins', sans-serif;
+    box-sizing: border-box;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+input[type="text"]::placeholder {
+    color: #adb5bd;
+}
+
+input[type="text"]:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 4px rgba(0, 123, 255, 0.15);
+}
+
+.error-message {
+    color: var(--error-color);
+    font-size: 0.9rem;
+    margin-top: 8px;
+    display: none;
+    font-weight: 500;
+}
+
+.button-group {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+button {
+    background-color: var(--primary-color);
+    color: white;
+    border: none;
+    padding: 14px 28px;
+    border-radius: 10px;
+    cursor: pointer;
+    font-size: 1rem;
+    font-weight: 600;
+    transition: all 0.2s ease-in-out;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+button:hover:not(:disabled) {
+    background-color: var(--primary-hover-color);
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(0, 123, 255, 0.2);
+}
+
+button:disabled {
+    background-color: #a0c7ef;
+    cursor: not-allowed;
+}
+
+.btn-secondary {
+    background-color: var(--secondary-color);
+    color: white;
+}
+.btn-secondary:hover:not(:disabled) {
+    background-color: var(--secondary-hover-color);
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.15);
+}
+
+.loader {
+    width: 20px;
+    height: 20px;
+    border: 3px solid rgba(255, 255, 255, 0.3);
+    border-top-color: #FFF;
+    border-radius: 50%;
+    display: none; /* Hidden by default */
+    box-sizing: border-box;
+    animation: rotation 0.8s linear infinite;
+    margin-right: 10px;
+}
+
+@keyframes rotation {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.code-block-wrapper {
+    margin-top: 2rem;
+    position: relative;
+}
+
+.code-block {
+    background-color: var(--code-bg-color);
+    color: var(--code-text-color);
+    padding: 1.25rem 1.75rem;
+    border-radius: 12px;
+    font-family: 'Fira Code', monospace;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    font-size: 0.95rem;
+    line-height: 1.6;
+}
+
+.copy-btn {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    padding: 6px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 500;
+    opacity: 0.8;
+    transition: all 0.2s ease;
+}
+
+.copy-btn:hover {
+    opacity: 1;
+    background: rgba(255, 255, 255, 0.2);
+}
+
+pre {
+    background-color: #f8f9fa;
+    color: var(--text-color);
+    padding: 1.25rem 1.75rem;
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    margin-top: 1.5rem;
+    font-family: 'Fira Code', monospace;
+    font-size: 0.95rem;
+}
+
+@media (max-width: 768px) {
+    body {
+        padding: 1.5rem;
+    }
+    .section {
+        padding: 2rem;
+    }
+    header h1 {
+        font-size: 2.25rem;
+    }
+    h2 {
+        font-size: 1.5rem;
+    }
+}

@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Swatantra - Digital Governance Kit</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <a href="../../index.html" class="back-btn">&larr; Kembali ke Menu Utama</a>
+            <h1>Digital Governance Starter Kit</h1>
+            <p>Dashboard interaktif untuk mengelola tata kelola di Swatantra Blockchain.</p>
+        </header>
+
+        <div class="section setup-section">
+            <h2>1. Setup Kontrak</h2>
+            <p>Deploy kontrak <code>governance.lua</code> lalu salin dan tempel alamatnya di bawah ini untuk memulai.</p>
+            <div class="code-block-wrapper">
+                <div class="code-block" id="deploy-command">./swatantra-node deploycontract -from [ALAMAT_ANDA] -file "governance.lua"</div>
+                <button class="copy-btn" data-clipboard-target="#deploy-command">Salin</button>
+            </div>
+            <div class="input-group" style="margin-top: 1.5rem;">
+                <input type="text" id="contract-address" placeholder="Masukkan alamat kontrak di sini...">
+                <div class="error-message" id="contract-address-error">Alamat kontrak tidak boleh kosong.</div>
+            </div>
+        </div>
+
+        <div class="section budget-section">
+            <h2>2. Status Anggaran</h2>
+            <p>Periksa total, pengeluaran, dan sisa anggaran yang diatur dalam kontrak.</p>
+            <div class="button-group">
+                <button id="get-budget-btn">
+                    <span class="loader"></span>
+                    <span>Periksa Anggaran</span>
+                </button>
+            </div>
+            <div class="code-block-wrapper" style="display: none;">
+                <div class="code-block" id="budget-command"></div>
+                <button class="copy-btn" data-clipboard-target="#budget-command">Salin</button>
+            </div>
+            <pre id="budget-output" style="display: none;"></pre>
+        </div>
+
+        <div class="section proposal-section">
+            <h2>3. Buat Proposal Baru</h2>
+            <p>Ajukan proposal baru untuk pemungutan suara oleh para pemangku kepentingan.</p>
+            <div class="input-group">
+                <input type="text" id="proposal-title" placeholder="Judul Proposal (misal: 'Pengadaan Server Baru')">
+                <div class="error-message" id="proposal-title-error">Judul proposal tidak boleh kosong.</div>
+            </div>
+            <div class="input-group">
+                <input type="text" id="proposal-desc" placeholder="Deskripsi Singkat (misal: 'Server untuk database')">
+                <div class="error-message" id="proposal-desc-error">Deskripsi tidak boleh kosong.</div>
+            </div>
+            <div class="button-group">
+                <button id="create-proposal-btn">
+                    <span class="loader"></span>
+                    <span>Buat Proposal</span>
+                </button>
+            </div>
+            <div class="code-block-wrapper" style="display: none;">
+                <div class="code-block" id="proposal-command"></div>
+                <button class="copy-btn" data-clipboard-target="#proposal-command">Salin</button>
+            </div>
+            <pre id="proposal-output" style="display: none;"></pre>
+        </div>
+
+        <div class="section vote-section">
+            <h2>4. Beri Suara (Vote)</h2>
+            <p>Berikan suara Anda (setuju atau tidak setuju) pada proposal yang ada.</p>
+            <div class="input-group">
+                <input type="text" id="vote-proposal-id" placeholder="ID Proposal">
+                <div class="error-message" id="vote-proposal-id-error">ID Proposal tidak boleh kosong.</div>
+            </div>
+            <div class="button-group">
+                <button id="vote-for-btn">
+                    <span class="loader"></span>
+                    <span>Vote SETUJU</span>
+                </button>
+                <button id="vote-against-btn" class="btn-secondary">
+                    <span class="loader"></span>
+                    <span>Vote TIDAK SETUJU</span>
+                </button>
+            </div>
+            <div class="code-block-wrapper" style="display: none;">
+                <div class="code-block" id="vote-command"></div>
+                <button class="copy-btn" data-clipboard-target="#vote-command">Salin</button>
+            </div>
+            <pre id="vote-output" style="display: none;"></pre>
+        </div>
+
+        <div class="section ai-section">
+            <h2>5. Analisis Anomali (AI Oracle)</h2>
+            <p>Gunakan AI Oracle untuk mendeteksi anomali pada data transaksi sebelum dieksekusi.</p>
+            <div class="input-group">
+                <input type="text" id="tx-data" placeholder="Contoh data transaksi (misal: 'pembelian 100 laptop')">
+                <div class="error-message" id="tx-data-error">Data transaksi tidak boleh kosong.</div>
+            </div>
+            <div class="button-group">
+                <button id="check-anomaly-btn">
+                    <span class="loader"></span>
+                    <span>Periksa Anomali</span>
+                </button>
+            </div>
+            <div class="code-block-wrapper" style="display: none;">
+                <div class="code-block" id="anomaly-command"></div>
+                <button class="copy-btn" data-clipboard-target="#anomaly-command">Salin</button>
+            </div>
+            <pre id="anomaly-output" style="display: none;"></pre>
+        </div>
+
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/clipboard@2.0.8/dist/clipboard.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
