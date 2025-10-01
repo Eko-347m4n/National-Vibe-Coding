@@ -19,3 +19,6 @@ go.work
 
 # Temporary files
 /tmp/
+
+# biner hasil kompilasi
+swatantra-node
